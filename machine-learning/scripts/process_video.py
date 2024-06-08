@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from video_processing import process_video_stream, download_video_stream, save_video_stream
 from tensorflow.keras.applications.resnet50 import ResNet50
+import requests  # Импортируем библиотеку requests
 
 def process_videos(csv_path, output_file, input_shape=(224, 224), max_videos=10):
     model = ResNet50(weights='imagenet')
@@ -25,9 +26,10 @@ def process_videos(csv_path, output_file, input_shape=(224, 224), max_videos=10)
         
         # Обработка видео
         annotations = process_video_stream(temp_video_path, model, input_shape)
-        labels = list(annotations)
+        labels = [f'{label} ({weight})' for label, weight in annotations.items()]
         
         # Добавление результатов в выходной файл с явной кодировкой UTF-8
+        print(f'Found results: {labels}')
         with open(output_file, 'a', encoding='utf-8') as f:
             f.write(f'"{video_url}","{description}","{labels}"\n')
         
@@ -37,4 +39,4 @@ def process_videos(csv_path, output_file, input_shape=(224, 224), max_videos=10)
 if __name__ == "__main__":
     csv_path = "../data/csv/videos.csv"
     output_file = "../data/annotations.csv"
-    process_videos(csv_path, output_file, max_videos=5)
+    process_videos(csv_path, output_file, max_videos=10)
