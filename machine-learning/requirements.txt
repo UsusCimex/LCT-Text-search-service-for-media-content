@@ -1,0 +1,10 @@
+pandas
+tensorflow
+moviepy
+pydub
+whisper
+rake-nltk
+nltk
+opencv-python
+requests
+googletrans

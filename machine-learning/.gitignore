@@ -13,6 +13,7 @@
 
 # Data folder (default path)
 /data
+/audio_models
 
 ### Data ###
 *.csv
