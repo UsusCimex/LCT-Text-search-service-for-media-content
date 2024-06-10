@@ -4,37 +4,62 @@ from video_processing import process_video_stream, download_video_stream, save_v
 from tensorflow.keras.applications.resnet50 import ResNet50
 import requests  # Импортируем библиотеку requests
 
-def process_videos(csv_path, output_file, input_shape=(224, 224), max_videos=10):
-    model = ResNet50(weights='imagenet')
-    videos_df = pd.read_csv(csv_path)
+def process_video(video_url, index, model, input_shape):
+    try:
+        print(f"Обработка видео {index + 1}: {video_url}")
 
-    # Создание/очистка выходного файла с явной кодировкой UTF-8
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write('link,description,labels\n')
-
-    for index, row in videos_df.iterrows():
-        if index >= max_videos:
-            break
-        video_url = row['link']
-        description = row['description']
-        print(f"Processing {video_url}")
-        
-        # Сохранение видео на диск
+        # Загрузка видео
         video_stream = download_video_stream(video_url)
-        temp_video_path = f"temp_video_{index}.mp4"
-        save_video_stream(video_stream, temp_video_path)
+        video_path = f"video_{index}.mp4"
+        with open(video_path, "wb") as f:
+            f.write(video_stream.getbuffer())
+
+        # Проверка, что видео файл сохранен
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f"Видео не сохранено: {video_path}")
+
+        # Извлечение аудио из видео
+        audio_path = f"audio_{index}.wav"
+        video = mp.VideoFileClip(video_path)
+        video.audio.write_audiofile(audio_path)
+        video.close()
+
+        # Проверка аудио файла
+        if os.path.getsize(audio_path) == 0:
+            raise ValueError("Извлеченное аудио пустое")
+
+        # Преобразование аудио в текст
+        converted_audio_path = convert_audio(audio_path)
+        text = recognize_speech(converted_audio_path)
+        print(f"Распознанный текст: {text}")
+
+        # Извлечение ключевых слов из текста
+        keywords = extract_keywords(text)
+        print(f"Ключевые слова: {keywords}")
+
+        # Обработка видео для извлечения меток
+        annotations = process_video_stream(video_path, model, input_shape)
+        if not annotations:
+            raise ValueError("Аннотации не получены или пусты")
         
-        # Обработка видео
-        annotations = process_video_stream(temp_video_path, model, input_shape)
         labels = [f'{label} ({weight})' for label, weight in annotations.items()]
-        
-        # Добавление результатов в выходной файл с явной кодировкой UTF-8
-        print(f'Found results: {labels}')
-        with open(output_file, 'a', encoding='utf-8') as f:
-            f.write(f'"{video_url}","{description}","{labels}"\n')
-        
-        # Удаление временного файла
-        os.remove(temp_video_path)
+
+        # Объединение ключевых слов и меток
+        combined_labels = f"Keywords: {keywords}, Labels: {', '.join(labels)}"
+        print(f"Комбинированные метки: {combined_labels}")
+
+        return combined_labels
+    except Exception as e:
+        print(f"Ошибка при обработке видео {video_url}: {e}")
+        return f"Ошибка при обработке видео: {e}"
+    finally:
+        # Удаление временных файлов
+        for path in [video_path, audio_path, "converted_audio.wav"]:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except PermissionError as e:
+                print(f"Ошибка при удалении файла {path}: {e}")
 
 if __name__ == "__main__":
     csv_path = "../data/csv/videos.csv"

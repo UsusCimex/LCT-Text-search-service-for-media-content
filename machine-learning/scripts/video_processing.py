@@ -1,56 +1,124 @@
-import cv2
+import os
 import numpy as np
-import requests
-from io import BytesIO  # Добавим этот импорт
-from tensorflow.keras.preprocessing.image import img_to_array
+import moviepy.editor as mp
 from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
-from utils import download_video_stream, save_video_stream, translate_to_russian
+from tensorflow.keras.preprocessing.image import img_to_array
+from tensorflow.keras.preprocessing import image
+from utils import download_video_stream
+from audio_processing import convert_audio, recognize_speech
+from keyword_extraction import extract_keywords
+import contextlib
 
-def extract_frames(video_path, num_frames=10):
-    vidcap = cv2.VideoCapture(video_path)
-    total_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_interval = total_frames // num_frames
-    frames = []
-
-    for i in range(num_frames):
-        vidcap.set(cv2.CAP_PROP_POS_FRAMES, i * frame_interval)
-        success, image = vidcap.read()
-        if success:
-            frames.append(image)
-        else:
-            break
-
-    vidcap.release()
-    return frames
-
-def process_video_stream(video_path, model, input_shape=(224, 224), num_frames=10, prediction_threshold=0.5):
-    frames = extract_frames(video_path, num_frames)
-    annotations = {}
-    
-    for image in frames:
-        image_resized = cv2.resize(image, input_shape)
-        image_array = img_to_array(image_resized)
-        image_array = preprocess_input(image_array)
-        image_array = np.expand_dims(image_array, axis=0)
+def process_video_stream(video, model, input_shape):
+    try:
+        frames = []
         
-        preds = model.predict(image_array, verbose=0)  # Установка verbose=0 для отключения вывода прогресса
-        decoded_preds = decode_predictions(preds, top=5)[0]  # Top 5 predictions
-        for pred in decoded_preds:
+        # Извлечение кадров из видео
+        for frame in video.iter_frames(fps=1):  # Извлекаем один кадр в секунду
+            # Изменение размера кадра до input_shape
+            frame = image.array_to_img(frame)
+            frame = frame.resize(input_shape)
+            frame = img_to_array(frame)
+            frames.append(frame)
+
+        predictions = []
+        
+        # Обработка каждого кадра
+        for frame in frames:
+            # Преобразование кадра для модели
+            img = np.expand_dims(frame, axis=0)
+            img = preprocess_input(img)
+            
+            # Предсказание модели
+            preds = model.predict(img, verbose=0)
+            decoded_preds = decode_predictions(preds, top=3)[0]
+            
+            predictions.extend(decoded_preds)
+        
+        # Агрегация результатов
+        result_dict = {}
+        for pred in predictions:
             label = pred[1]
-            probability = round(pred[2], 4)
-            if probability > prediction_threshold:
-                if label not in annotations or annotations[label] < probability:
-                    annotations[label] = probability
+            confidence = pred[2]
+            if label in result_dict:
+                result_dict[label] += confidence
+            else:
+                result_dict[label] = confidence
 
-    # Перевод меток на русский язык
-    translated_annotations = {translate_to_russian(label): prob for label, prob in annotations.items()}
-    return translated_annotations
+        # Усреднение весов
+        for label in result_dict:
+            result_dict[label] /= len(frames)
+        
+        return result_dict
 
-def download_video_stream(url):
-    response = requests.get(url, stream=True)
-    video_stream = BytesIO(response.content)
-    return video_stream
+    except Exception as e:
+        print(f"Ошибка при обработке видео потока: {e}")
+        return {}
 
-def save_video_stream(video_stream, output_path):
-    with open(output_path, 'wb') as f:
-        f.write(video_stream.read())
+def process_video(video_url, index, model, input_shape):
+    video = None
+    audio_path = None
+    video_path = None
+    try:
+        print(f"Обработка видео {index + 1}: {video_url}")
+
+        # Загрузка видео в память
+        video_stream = download_video_stream(video_url)
+        video_path = f"video_{index}.mp4"
+        with open(video_path, "wb") as f:
+            f.write(video_stream.getbuffer())
+
+        # Открытие видеофайла с помощью moviepy
+        video = mp.VideoFileClip(video_path)
+
+        # Извлечение аудио из видео
+        audio_path = f"audio_{index}.wav"
+        
+        if video.audio is None:
+            raise ValueError("Аудио дорожка отсутствует в видео")
+
+        video.audio.write_audiofile(audio_path, verbose=False)
+        
+        # Проверка аудио файла
+        if os.path.getsize(audio_path) == 0:
+            raise ValueError("Извлеченное аудио пустое")
+
+        # Преобразование аудио в текст
+        converted_audio_path = convert_audio(audio_path)
+        text = recognize_speech(converted_audio_path)
+        print(f"Распознанный текст: {text}")
+
+        # Извлечение ключевых слов из текста
+        keywords_with_weights = extract_keywords(text)
+        keywords = [f'{keyword} ({weight:.2f}%)' for keyword, weight in keywords_with_weights]
+        print(f"Ключевые слова: {keywords}")
+
+        # Обработка видео для извлечения меток
+        annotations = process_video_stream(video, model, input_shape)
+        if not annotations:
+            raise ValueError("Аннотации не получены или пусты")
+        
+        labels = [f'{label} ({weight:.2f}%)' for label, weight in annotations.items()]
+
+        # Объединение ключевых слов и меток
+        combined_labels = f"Keywords: {', '.join(keywords)}, Labels: {', '.join(labels)}"
+        print(f"Комбинированные метки: {combined_labels}")
+
+        return combined_labels
+    except Exception as e:
+        print(f"Ошибка при обработке видео {video_url}: {e}")
+        return f"Ошибка при обработке видео: {e}"
+    finally:
+        # Закрытие видеофайла и удаление временных файлов
+        try:
+            if video:
+                video.reader.close()
+                if video.audio:
+                    video.audio.reader.close_proc()
+        except Exception as e:
+            print(f"Ошибка при закрытии ресурсов видео: {e}")
+
+        for path in [video_path, audio_path, "converted_audio.wav"]:
+            if path and os.path.exists(path):
+                with contextlib.suppress(PermissionError):
+                    os.remove(path)

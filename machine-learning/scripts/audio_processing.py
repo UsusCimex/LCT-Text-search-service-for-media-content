@@ -1,15 +1,6 @@
 import os
-import pandas as pd
-import moviepy.editor as mp
 from pydub import AudioSegment
 import whisper
-from rake_nltk import Rake
-import nltk
-from utils import download_video_stream
-
-# Загрузка стоп-слов
-nltk.download('stopwords')
-stop_words = set(nltk.corpus.stopwords.words('russian'))
 
 def convert_audio(audio_path, output_path="converted_audio.wav"):
     try:
@@ -27,86 +18,3 @@ def recognize_speech(audio_path):
         return result['text']
     except Exception as e:
         raise RuntimeError(f"Ошибка при распознавании речи: {e}")
-
-def extract_keywords(text):
-    try:
-        # Инициализация RAKE с использованием русских стоп-слов
-        r = Rake(stopwords=stop_words, language="russian")
-        r.extract_keywords_from_text(text)
-        keywords = r.get_ranked_phrases_with_scores()
-        print(f"Сырые ключевые слова: {keywords}")  # Добавлен вывод
-
-        # Извлечение только ключевых слов без оценок
-        keywords = [kw[1] for kw in keywords[:10]]
-
-        return ', '.join(keywords)
-    except Exception as e:
-        print(f"Ошибка при извлечении ключевых слов: {e}")
-        return ""
-
-def process_video(video_url, index):
-    try:
-        print(f"Обработка видео {index + 1}: {video_url}")
-
-        # Загрузка видео
-        video_stream = download_video_stream(video_url)
-        video_path = f"video_{index}.mp4"
-        with open(video_path, "wb") as f:
-            f.write(video_stream.getbuffer())
-
-        # Проверка, что видео файл сохранен
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"Видео не сохранено: {video_path}")
-
-        # Извлечение аудио из видео
-        audio_path = f"audio_{index}.wav"
-        video = mp.VideoFileClip(video_path)
-        video.audio.write_audiofile(audio_path)
-        video.close()
-
-        # Проверка аудио файла
-        if os.path.getsize(audio_path) == 0:
-            raise ValueError("Извлеченное аудио пустое")
-
-        # Преобразование аудио в текст
-        converted_audio_path = convert_audio(audio_path)
-        text = recognize_speech(converted_audio_path)
-        print(f"Распознанный текст: {text}")
-
-        # Извлечение ключевых слов из текста
-        keywords = extract_keywords(text)
-        print(f"Ключевые слова: {keywords}")
-
-        return keywords
-    except Exception as e:
-        print(f"Ошибка при обработке видео {video_url}: {e}")
-        return f"Ошибка при обработке видео: {e}"
-    finally:
-        # Удаление временных файлов
-        for path in [video_path, audio_path, "converted_audio.wav"]:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except PermissionError as e:
-                print(f"Ошибка при удалении файла {path}: {e}")
-
-def process_video_links(input_csv, output_csv, max_videos=1):
-    df = pd.read_csv(input_csv)
-    processed_data = []
-
-    for index, row in df.iterrows():
-        if index >= max_videos:
-            break
-        video_url = row['link']
-        description = row['description']
-
-        keywords = process_video(video_url, index)
-        processed_data.append({'link': video_url, 'description': description, 'keywords': keywords})
-
-    # Создание нового DataFrame с обработанными данными
-    processed_df = pd.DataFrame(processed_data)
-    processed_df.to_csv(output_csv, index=False)
-
-input_csv = "../data/csv/videos.csv"
-output_csv = "../data/phrases.csv"
-process_video_links(input_csv, output_csv, max_videos=5)
