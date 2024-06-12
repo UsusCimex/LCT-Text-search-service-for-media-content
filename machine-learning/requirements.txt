@@ -8,3 +8,4 @@ nltk
 opencv-python
 requests
 googletrans
+fastapi
