@@ -1,34 +1,56 @@
 from fastapi import FastAPI, UploadFile, File
-from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications.efficientnet import EfficientNetB7
 from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
+from tensorflow.keras.applications.efficientnet import preprocess_input, decode_predictions
 import numpy as np
 import moviepy.editor as mp
 import os
 import contextlib
+from typing import List
+from pydantic import BaseModel
+import base64
+from io import BytesIO
+from PIL import Image
+import concurrent.futures
 
 app = FastAPI()
 
-model = ResNet50(weights='imagenet')
+model = EfficientNetB7(weights='imagenet')
 
-def process_video_stream(video, model, input_shape):
+class ImageData(BaseModel):
+    images: List[str]  # Base64 encoded images
+
+def decode_base64_image(data: str) -> Image.Image:
+    image_data = base64.b64decode(data)
+    image = Image.open(BytesIO(image_data))
+    return image
+
+def process_frame(frame, input_shape):
+    img = frame.resize(input_shape)
+    img_array = image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = preprocess_input(img_array)
+    return img_array
+
+def predict_with_model(img_array):
+    preds = model.predict(img_array, verbose=0)
+    decoded_preds = decode_predictions(preds, top=3)[0]
+    return decoded_preds
+
+def process_images(images: List[str], model, input_shape):
     try:
         frames = []
-
-        # Извлечение кадров из видео
-        for frame in video.iter_frames(fps=1):  # Извлекаем один кадр в секунду
-            frame = image.array_to_img(frame)
-            frame = frame.resize(input_shape)
-            frame = image.img_to_array(frame)
-            frames.append(frame)
+        for img_str in images:
+            img = decode_base64_image(img_str)
+            frames.append(img)
 
         predictions = []
-        for frame in frames:
-            img = np.expand_dims(frame, axis=0)
-            img = preprocess_input(img)
-            preds = model.predict(img, verbose=0)
-            decoded_preds = decode_predictions(preds, top=3)[0]
-            predictions.extend(decoded_preds)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_frame = {executor.submit(process_frame, frame, input_shape): frame for frame in frames}
+            for future in concurrent.futures.as_completed(future_to_frame):
+                img_array = future.result()
+                decoded_preds = predict_with_model(img_array)
+                predictions.extend(decoded_preds)
 
         result_dict = {}
         for pred in predictions:
@@ -42,12 +64,57 @@ def process_video_stream(video, model, input_shape):
         for label in result_dict:
             result_dict[label] /= len(frames)
 
-        return result_dict
+        sorted_result = dict(sorted(result_dict.items(), key=lambda item: item[1], reverse=True))
+
+        return sorted_result
+    except Exception as e:
+        return f"Ошибка при обработке изображений: {e}"
+
+def process_video_stream(video, input_shape, frame_interval=0.5):
+    try:
+        frames = []
+
+        for frame in video.iter_frames(fps=1/frame_interval):
+            img = Image.fromarray(frame)
+            img = img.resize(input_shape)
+            frames.append(img)
+
+        predictions = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_frame = {executor.submit(process_frame, frame, input_shape): frame for frame in frames}
+            for future in concurrent.futures.as_completed(future_to_frame):
+                img_array = future.result()
+                decoded_preds = predict_with_model(img_array)
+                predictions.extend(decoded_preds)
+
+        result_dict = {}
+        for pred in predictions:
+            label = pred[1]
+            confidence = pred[2]
+            if label in result_dict:
+                result_dict[label] += confidence
+            else:
+                result_dict[label] = confidence
+
+        for label in result_dict:
+            result_dict[label] /= len(frames)
+
+        sorted_result = dict(sorted(result_dict.items(), key=lambda item: item[1], reverse=True))
+
+        return sorted_result
     except Exception as e:
         return f"Ошибка при обработке видео потока: {e}"
 
+@app.post("/process_images/")
+async def process_images_endpoint(data: ImageData, input_shape=(600, 600)):
+    try:
+        result_dict = process_images(data.images, model, input_shape)
+        return {"marks": result_dict}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.post("/process_video/")
-async def process_video(file: UploadFile = File(...), input_shape=(224, 224)):
+async def process_video(file: UploadFile = File(...), input_shape=(600, 600)):
     print("Processing: " + file.filename)
     video_path = "temp_video.mp4"
     try:
@@ -55,7 +122,7 @@ async def process_video(file: UploadFile = File(...), input_shape=(224, 224)):
             f.write(await file.read())
 
         video = mp.VideoFileClip(video_path)
-        result_dict = process_video_stream(video, model, input_shape)
+        result_dict = process_video_stream(video, input_shape)
         
         return {"marks": result_dict}
     except Exception as e:

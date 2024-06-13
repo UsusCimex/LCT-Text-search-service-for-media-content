@@ -11,13 +11,14 @@ stop_words = set(nltk.corpus.stopwords.words('russian'))
 app = FastAPI()
 
 def convert_audio(audio_path, output_path="converted_audio.wav"):
-    audio = AudioSegment.from_wav(audio_path)
+    audio = AudioSegment.from_file(audio_path)
     audio = audio.set_frame_rate(16000)
+    audio = audio.set_channels(1)
     audio.export(output_path, format="wav")
     return output_path
 
 def recognize_speech(audio_path):
-    model = whisper.load_model("base")
+    model = whisper.load_model("large")
     result = model.transcribe(audio_path)
     return result['text']
 
@@ -31,9 +32,9 @@ def extract_keywords(text):
 
 @app.post("/process_audio/")
 async def process_audio(file: UploadFile = File(...)):
-    print("processing: " + file.filename)
+    print("Processing: " + file.filename)
     try:
-        audio_path = f"temp_audio.wav"
+        audio_path = f"temp_audio.{file.filename.split('.')[-1]}"
         with open(audio_path, "wb") as f:
             f.write(await file.read())
 
@@ -41,7 +42,7 @@ async def process_audio(file: UploadFile = File(...)):
         text = recognize_speech(converted_audio_path)
 
         keywords_with_weights = extract_keywords(text)
-        keywords = [f'{keyword} ({weight:.2f}%)' for keyword, weight in keywords_with_weights]
+        keywords = {keyword: weight for keyword, weight in keywords_with_weights}
 
         os.remove(audio_path)
         os.remove(converted_audio_path)
