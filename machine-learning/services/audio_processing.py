@@ -1,14 +1,23 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydub import AudioSegment
 import whisper
 from rake_nltk import Rake
 import nltk
 import os
+from typing import List
+from pydantic import BaseModel
+import moviepy.editor as mp
+import aiohttp
+import uuid
+import contextlib
 
 nltk.download('stopwords')
 stop_words = set(nltk.corpus.stopwords.words('russian'))
 
 app = FastAPI()
+
+class VideoURLData(BaseModel):
+    url: str
 
 def convert_audio(audio_path, output_path="converted_audio.wav"):
     audio = AudioSegment.from_file(audio_path)
@@ -30,26 +39,74 @@ def extract_keywords(text):
     keywords_with_weights = [(keyword, score / total_score * 100) for score, keyword in keywords[:10]]
     return keywords_with_weights
 
+async def download_video(url: str, filename: str):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise HTTPException(status_code=400, detail="Ошибка при загрузке видео по URL")
+            with open(filename, 'wb') as f:
+                f.write(await response.read())
+
 @app.post("/process_audio/")
 async def process_audio(file: UploadFile = File(...)):
-    print("Processing: " + file.filename)
+    unique_audio_filename = f"temp_audio.{file.filename.split('.')[-1]}"
+    converted_audio_path = "converted_audio.wav"
     try:
-        audio_path = f"temp_audio.{file.filename.split('.')[-1]}"
-        with open(audio_path, "wb") as f:
+        with open(unique_audio_filename, "wb") as f:
             f.write(await file.read())
 
-        converted_audio_path = convert_audio(audio_path)
+        converted_audio_path = convert_audio(unique_audio_filename)
         text = recognize_speech(converted_audio_path)
 
         keywords_with_weights = extract_keywords(text)
         keywords = {keyword: weight for keyword, weight in keywords_with_weights}
 
-        os.remove(audio_path)
-        os.remove(converted_audio_path)
+        return {"marks": keywords}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        if os.path.exists(unique_audio_filename):
+            with contextlib.suppress(PermissionError, FileNotFoundError):
+                os.remove(unique_audio_filename)
+        if os.path.exists(converted_audio_path):
+            with contextlib.suppress(PermissionError, FileNotFoundError):
+                os.remove(converted_audio_path)
+
+@app.post("/process_video_url/")
+async def process_video_url(data: VideoURLData):
+    unique_video_filename = f"{uuid.uuid4()}.mp4"
+    unique_audio_filename = f"{uuid.uuid4()}.wav"
+    converted_audio_path = "converted_audio.wav"
+    try:
+        await download_video(data.url, unique_video_filename)
+
+        video = mp.VideoFileClip(unique_video_filename)
+        video.audio.write_audiofile(unique_audio_filename, codec='pcm_s16le')
+        
+        # Ensure video resources are released before deleting the file
+        video.reader.close()
+        if video.audio:
+            video.audio.reader.close_proc()
+
+        converted_audio_path = convert_audio(unique_audio_filename)
+        text = recognize_speech(converted_audio_path)
+
+        keywords_with_weights = extract_keywords(text)
+        keywords = {keyword: weight for keyword, weight in keywords_with_weights}
 
         return {"marks": keywords}
     except Exception as e:
         return {"error": str(e)}
+    finally:
+        if os.path.exists(unique_video_filename):
+            with contextlib.suppress(PermissionError, FileNotFoundError):
+                os.remove(unique_video_filename)
+        if os.path.exists(unique_audio_filename):
+            with contextlib.suppress(PermissionError, FileNotFoundError):
+                os.remove(unique_audio_filename)
+        if os.path.exists(converted_audio_path):
+            with contextlib.suppress(PermissionError, FileNotFoundError):
+                os.remove(converted_audio_path)
 
 if __name__ == "__main__":
     import uvicorn
