@@ -9,3 +9,6 @@ opencv-python
 requests
 googletrans
 fastapi
+aiohttp
+aiokafka
+torch
