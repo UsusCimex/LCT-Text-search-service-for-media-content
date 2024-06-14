@@ -12,3 +12,4 @@ fastapi
 aiohttp
 aiokafka
 torch
+tensorflow-gpu
