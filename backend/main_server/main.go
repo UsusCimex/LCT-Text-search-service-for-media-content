@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"main_server/elasticsearch_utils"
 	"net/http"
 	"os"
 	"strings"
@@ -31,12 +32,52 @@ type Result struct {
 	Marks map[string]float64 `json:"marks"`
 }
 
-func getVideosHandler(w http.ResponseWriter, r *http.Request) {
-	get_videos_url, exists := os.LookupEnv("GET_VIDEOS_URL")
+// init is invoked before main()
+func init() {
+	// loads values from .env into the system
+	if err := godotenv.Load("info.env"); err != nil {
+		log.Print("No .env file found")
+	}
+}
+
+func main() {
+	//connect to elasticsearch
+	elasticsearch_utils.Connect()
+
+	//elasticsearch_utils.SetElasticsearch()
+
+	http.HandleFunc("/search", getVideosHandler)
+	http.HandleFunc("/video/upload", loadVideoHandler)
+
+	//start server
+	cur_addr, exists := os.LookupEnv("CUR_ADDR")
 	if !exists {
-		log.Println("url for get_videos server doesn't found")
+		log.Println("current addres doesn't found")
+	}
+	log.Println("Starting server on ", cur_addr)
+	if err := http.ListenAndServe(cur_addr, nil); err != nil {
+		log.Fatalf("Could not start server: %s\n", err.Error())
 	}
 
+	//start listen kafka results
+	kafkaURL, exists := os.LookupEnv("KAFKA_URL")
+	if !exists {
+		log.Println("kafka url environment not found")
+	}
+	brokers := strings.Split(kafkaURL, ",")
+	topic_result, exists := os.LookupEnv("TOPIC_RESULT")
+	if !exists {
+		log.Println("topic result not found")
+	}
+	go consumeMessages(brokers, topic_result, elasticsearch_utils.Es)
+
+}
+
+func getVideosHandler(w http.ResponseWriter, r *http.Request) {
+	phrase := "dog"
+	elasticsearch_utils.Search(phrase)
+
+	elasticsearch_utils.PrintDocs()
 }
 
 func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +154,7 @@ func produceMessage(brokers []string, topic string, message []byte, key []byte) 
 	}
 }
 
-func consumeMessages(brokers []string, topic string) {
+func consumeMessages(brokers []string, topic string, esClient *elasticsearch.Client) {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: brokers,
 		Topic:   topic,
@@ -146,55 +187,5 @@ func consumeMessages(brokers []string, topic string) {
 }
 
 func processResult(result Result) {
-
-}
-
-// init is invoked before main()
-func init() {
-	// loads values from .env into the system
-	if err := godotenv.Load("info.env"); err != nil {
-		log.Print("No .env file found")
-	}
-}
-
-func main() {
-	http.HandleFunc("/search", getVideosHandler)
-	http.HandleFunc("/video/upload", loadVideoHandler)
-
-	//start server
-	cur_addr, exists := os.LookupEnv("CUR_ADDR")
-	if !exists {
-		log.Println("current addres doesn't found")
-	}
-	log.Println("Starting server on ", cur_addr)
-	if err := http.ListenAndServe(cur_addr, nil); err != nil {
-		log.Fatalf("Could not start server: %s\n", err.Error())
-	}
-
-	//start listen kafka results
-	kafkaURL, exists := os.LookupEnv("KAFKA_URL")
-	if !exists {
-		log.Println("kafka url environment not found")
-	}
-	brokers := strings.Split(kafkaURL, ",")
-	topic_result, exists := os.LookupEnv("TOPIC_RESULT")
-	if !exists {
-		log.Println("topic result not found")
-	}
-	go consumeMessages(brokers, topic_result)
-
-	//connect to elasticsearch
-	elasticsearch_url, exists := os.LookupEnv("ELASTICSEARCH_URL")
-	if !exists {
-		log.Println("elasticsearch url environment not found")
-	}
-
-	cfg := elasticsearch.Config{
-		Addresses: []string{elasticsearch_url},
-	}
-	es, err := elasticsearch.NewClient(cfg)
-	if err != nil {
-		log.Fatalf("Error create client Elasticsearch: %s", err)
-	}
 
 }
