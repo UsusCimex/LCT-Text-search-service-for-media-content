@@ -24,9 +24,9 @@ type VideoLinkMessage struct {
 }
 
 type Result struct {
-	Type      string             `json:"type"`
-	VideoLink string             `json:"video_link"`
-	Marks     map[string]float64 `json:"marks"`
+	Type      string   `json:"type"`
+	VideoLink string   `json:"video_link"`
+	Marks     []string `json:"marks"`
 }
 
 // init is invoked before main()
@@ -48,12 +48,7 @@ func main() {
 	http.HandleFunc("/video/upload", loadVideoHandler)
 
 	//start server
-	cur_addr, exists := os.LookupEnv("CUR_ADDR")
-	if !exists {
-		log.Println("current addres doesn't found")
-	}
-	log.Println("Starting server on ", cur_addr)
-	if err := http.ListenAndServe(cur_addr, nil); err != nil {
+	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalf("Could not start server: %s\n", err.Error())
 	}
 
@@ -205,7 +200,7 @@ func processResult(results []Result, esClient *elasticsearch.Client) {
 	doc.Url = results[0].VideoLink
 	doc.Tags = []string{}
 	for i := 0; i < 3; i++ {
-		doc.Tags = append(doc.Tags, results[i].Marks)
+		doc.Tags = append(doc.Tags, results[i].Marks...)
 	}
 
 	elasticsearch_utils.IndexDocument(doc)

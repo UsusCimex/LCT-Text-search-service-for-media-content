@@ -38,17 +38,6 @@ func Connect() {
 func SetElasticsearch() {
 	// Создание индекса
 	createIndex()
-
-	// Индексация документа
-	doc := Doc{
-		Url: "https://example.com/video1",
-		Tags: []string{
-			"dog",
-			"cat",
-			"магазин",
-		},
-	}
-	indexDocument(doc)
 }
 
 func createIndex() {

@@ -1,10 +1,12 @@
-FROM golang:latest
+FROM golang:1.22.4-alpine
 
 WORKDIR /app
 
 # Копируем содержимое текущей директории (включая go.mod и go.sum, если есть)
 # в рабочую директорию внутри контейнера
 COPY . .
+
+RUN go mod tidy
 
 # Собираем приложение
 RUN go build -o main .
