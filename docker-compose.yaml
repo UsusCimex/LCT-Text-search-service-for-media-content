@@ -144,7 +144,7 @@ services:
       - elasticsearch
 
   audio_service:
-    build: ../machine-learning/audio_service
+    build: ./machine-learning/services/audio_processing
     container_name: audio_service
     environment:
       - KAFKA_URL=kafka1:29092,kafka2:29093,kafka3:29094
@@ -154,7 +154,7 @@ services:
       - kafka1
 
   video_service:
-    build: ../machine-learning/video_service
+    build: ./machine-learning/services/video_processing
     container_name: video_service
     environment:
       - KAFKA_URL=kafka1:29092,kafka2:29093,kafka3:29094
@@ -164,7 +164,7 @@ services:
       - kafka1
 
   text_service:
-    build: ../machine-learning/text_service
+    build: ./machine-learning/services/text_processing
     container_name: text_service
     environment:
       - KAFKA_URL=kafka1:29092,kafka2:29093,kafka3:29094

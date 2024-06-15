@@ -1,29 +1,24 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel
+import os
+import json
+import asyncio
+import aiohttp
 from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
 from pydub import AudioSegment
 import whisper
 from rake_nltk import Rake
 import nltk
-import os
-import asyncio
-import json
 
 nltk.download('stopwords')
 stop_words = set(nltk.corpus.stopwords.words('russian'))
 
-app = FastAPI()
-
+# Настройка Kafka
 KAFKA_BROKER = 'localhost:9092'
-TOPIC = 'audio_topic'
+AUDIO_TOPIC = 'audio_topic'
+RESULT_TOPIC = 'result_topic'
 
 loop = asyncio.get_event_loop()
 producer = AIOKafkaProducer(loop=loop, bootstrap_servers=KAFKA_BROKER)
-consumer = AIOKafkaConsumer(TOPIC, loop=loop, bootstrap_servers=KAFKA_BROKER, group_id="audio_group")
-
-class AudioResponse(BaseModel):
-    type: str
-    marks: dict
+consumer = AIOKafkaConsumer(AUDIO_TOPIC, loop=loop, bootstrap_servers=KAFKA_BROKER, group_id="audio_group")
 
 def convert_audio(audio_path, output_path="converted_audio.wav"):
     audio = AudioSegment.from_file(audio_path)
@@ -45,54 +40,57 @@ def extract_keywords(text):
     keywords_with_weights = [(keyword, score / total_score * 100) for score, keyword in keywords[:10]]
     return keywords_with_weights
 
-async def send_to_kafka(data: dict):
+async def send_to_kafka(topic, data: dict):
     await producer.start()
     try:
         value = json.dumps(data).encode('utf-8')
-        await producer.send_and_wait(TOPIC, value)
+        await producer.send_and_wait(topic, value)
     finally:
         await producer.stop()
 
-@app.post("/process_audio/", response_model=AudioResponse)
-async def process_audio(file: UploadFile = File(...)):
-    unique_audio_filename = f"temp_audio.{file.filename.split('.')[-1]}"
-    converted_audio_path = "converted_audio.wav"
-    try:
-        with open(unique_audio_filename, "wb") as f:
-            f.write(await file.read())
-
-        converted_audio_path = convert_audio(unique_audio_filename)
-        text = recognize_speech(converted_audio_path)
-
-        keywords_with_weights = extract_keywords(text)
-        keywords = {kw[0] for kw in keywords_with_weights}
-
-        data = {
-            "type": "audio",
-            "marks": keywords
-        }
-        
-        await send_to_kafka(data)
-        
-        return data
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
-        if os.path.exists(unique_audio_filename):
-            os.remove(unique_audio_filename)
-        if os.path.exists(converted_audio_path):
-            os.remove(converted_audio_path)
-
-@app.on_event("startup")
-async def startup_event():
-    await consumer.start()
-    asyncio.create_task(consume())
+async def download_audio(url, file_path):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(file_path, 'wb') as f:
+                    f.write(await response.read())
+                return file_path
+            else:
+                raise Exception(f"Failed to download audio. Status code: {response.status}")
 
 async def consume():
-    async for msg in consumer:
-        data = json.loads(msg.value.decode('utf-8'))
-        print(f"Received message: {data}")
+    await consumer.start()
+    try:
+        async for msg in consumer:
+            data = json.loads(msg.value.decode('utf-8'))
+            audio_url = data.get('url')
+            
+            if audio_url:
+                unique_audio_filename = f"temp_audio.{os.path.basename(audio_url).split('.')[-1]}"
+                converted_audio_path = "converted_audio.wav"
+                
+                try:
+                    await download_audio(audio_url, unique_audio_filename)
+                    
+                    converted_audio_path = convert_audio(unique_audio_filename)
+                    text = recognize_speech(converted_audio_path)
+                    keywords_with_weights = extract_keywords(text)
+                    keywords = {kw[0] for kw in keywords_with_weights}
+                    
+                    result_data = {
+                        "type": "audio",
+                        "marks": keywords
+                    }
+                    
+                    await send_to_kafka(RESULT_TOPIC, result_data)
+                
+                finally:
+                    if os.path.exists(unique_audio_filename):
+                        os.remove(unique_audio_filename)
+                    if os.path.exists(converted_audio_path):
+                        os.remove(converted_audio_path)
+    finally:
+        await consumer.stop()
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    loop.run_until_complete(consume())

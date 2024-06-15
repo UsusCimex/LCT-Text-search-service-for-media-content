@@ -1,34 +1,31 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel
-from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
-import moviepy.editor as mp
 import os
-import asyncio
 import json
+import asyncio
+import aiohttp
 import numpy as np
 from PIL import Image
+from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
+import moviepy.editor as mp
 from tensorflow.keras.applications.efficientnet import EfficientNetB7, preprocess_input, decode_predictions
 from tensorflow.keras.preprocessing import image
 import tensorflow as tf
 
+# Настройка GPU
 physical_devices = tf.config.list_physical_devices('GPU')
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-app = FastAPI()
-
+# Настройка Kafka
 KAFKA_BROKER = 'localhost:9092'
-TOPIC = 'video_topic'
+VIDEO_TOPIC = 'video_topic'
+RESULT_TOPIC = 'result_topic'
 
 loop = asyncio.get_event_loop()
 producer = AIOKafkaProducer(loop=loop, bootstrap_servers=KAFKA_BROKER)
-consumer = AIOKafkaConsumer(TOPIC, loop=loop, bootstrap_servers=KAFKA_BROKER, group_id="video_group")
+consumer = AIOKafkaConsumer(VIDEO_TOPIC, loop=loop, bootstrap_servers=KAFKA_BROKER, group_id="video_group")
 
+# Загрузка модели
 model = EfficientNetB7(weights='imagenet')
-
-class VideoResponse(BaseModel):
-    type: str
-    marks: dict
 
 def process_frame(frame, input_shape):
     img = frame.resize(input_shape)
@@ -64,51 +61,51 @@ def process_video_stream(video, input_shape, frame_interval=0.5):
         result_dict[label] /= len(frames)
 
     sorted_result = dict(sorted(result_dict.items(), key=lambda item: item[1], reverse=True))
-    res = [sr[0] for sr in sorted_result]
+    res = [sr[0] for sr in sorted_result.items()]
     return res
 
-async def send_to_kafka(data: dict):
+async def send_to_kafka(topic, data: dict):
     await producer.start()
     try:
         value = json.dumps(data).encode('utf-8')
-        await producer.send_and_wait(TOPIC, value)
+        await producer.send_and_wait(topic, value)
     finally:
         await producer.stop()
 
-@app.post("/process_video/", response_model=VideoResponse)
-async def process_video(file: UploadFile = File(...)):
-    unique_filename = f"temp/{file.filename.split('/')[-1]}"
-    try:
-        with open(unique_filename, "wb") as f:
-            f.write(await file.read())
-
-        video = mp.VideoFileClip(unique_filename)
-        result_dict = process_video_stream(video, input_shape=(224, 224))
-        
-        data = {
-            "type": "video",
-            "marks": result_dict
-        }
-        
-        await send_to_kafka(data)
-        
-        return data
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
-        if os.path.exists(unique_filename):
-            os.remove(unique_filename)
-
-@app.on_event("startup")
-async def startup_event():
-    await consumer.start()
-    asyncio.create_task(consume())
+async def download_video(url, file_path):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(file_path, 'wb') as f:
+                    f.write(await response.read())
+                return file_path
+            else:
+                raise Exception(f"Failed to download video. Status code: {response.status}")
 
 async def consume():
-    async for msg in consumer:
-        data = json.loads(msg.value.decode('utf-8'))
-        print(f"Received message: {data}")
+    await consumer.start()
+    try:
+        async for msg in consumer:
+            data = json.loads(msg.value.decode('utf-8'))
+            video_url = data.get('url')
+            
+            if video_url:
+                video_file_path = f"temp/{os.path.basename(video_url)}"
+                await download_video(video_url, video_file_path)
+                
+                video = mp.VideoFileClip(video_file_path)
+                result_dict = process_video_stream(video, input_shape=(224, 224))
+                
+                result_data = {
+                    "type": "video",
+                    "marks": result_dict
+                }
+                
+                await send_to_kafka(RESULT_TOPIC, result_data)
+                
+                os.remove(video_file_path)
+    finally:
+        await consumer.stop()
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    loop.run_until_complete(consume())
