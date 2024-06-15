@@ -14,6 +14,11 @@ import (
 
 var Es *elasticsearch.Client
 
+type Doc struct {
+	Url  string   `json:"url"`
+	Tags []string `json:"tags"`
+}
+
 func Connect() {
 	elasticsearch_url, exists := os.LookupEnv("ELASTICSEARCH_URL")
 	if !exists {
@@ -35,9 +40,9 @@ func SetElasticsearch() {
 	createIndex()
 
 	// Индексация документа
-	doc := map[string]interface{}{
-		"url": "https://example.com/video1",
-		"tags": []string{
+	doc := Doc{
+		Url: "https://example.com/video1",
+		Tags: []string{
 			"dog",
 			"cat",
 			"магазин",
@@ -73,7 +78,7 @@ func createIndex() {
 	log.Println("Index created successfully")
 }
 
-func indexDocument(doc map[string]interface{}) {
+func IndexDocument(doc Doc) {
 	data, err := json.Marshal(doc)
 	if err != nil {
 		log.Fatalf("Error marshaling the document: %s", err)

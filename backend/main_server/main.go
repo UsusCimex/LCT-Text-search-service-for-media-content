@@ -23,13 +23,10 @@ type VideoLinkMessage struct {
 	VideoLink string `json:"video_link"`
 }
 
-type DescriptionMessage struct {
-	Description string `json:"description"`
-}
-
 type Result struct {
-	Type  string             `json:"type"`
-	Marks map[string]float64 `json:"marks"`
+	Type      string             `json:"type"`
+	VideoLink string             `json:"video_link"`
+	Marks     map[string]float64 `json:"marks"`
 }
 
 // init is invoked before main()
@@ -130,7 +127,7 @@ func sendToKafka(brokers []string, request LoadVideoRequest) {
 	if err != nil {
 		log.Fatalf("Failed to marshal video link message: %v\n", err)
 	}
-	descriptionMessage, err := json.Marshal(DescriptionMessage{Description: request.Description})
+	descriptionMessage, err := json.Marshal(request)
 	if err != nil {
 		log.Fatalf("Failed to marshal description message: %v\n", err)
 	}
@@ -170,28 +167,46 @@ func consumeMessages(brokers []string, topic string, esClient *elasticsearch.Cli
 	ctx := context.Background()
 
 	for {
-		for __ := 0; __ < 3; __++ {
-			msg, err := reader.ReadMessage(ctx)
-			if err != nil {
-				if err == context.Canceled {
-					break
-				}
-				log.Printf("Failed to read message: %v\n", err)
-				continue
-			}
+		resultsMap := make(map[string][]Result)
 
-			var result Result
-			err = json.Unmarshal(msg.Value, &result)
-			if err != nil {
-				log.Printf("Error parsing JSON: %v\n", err)
-				continue
+		msg, err := reader.ReadMessage(ctx)
+		if err != nil {
+			if err == context.Canceled {
+				break
 			}
+			log.Printf("Failed to read message: %v\n", err)
+			continue
+		}
 
-			processResult(result, esClient)
+		var result Result
+		err = json.Unmarshal(msg.Value, &result)
+		if err != nil {
+			log.Printf("Error parsing JSON: %v\n", err)
+			continue
+		}
+
+		_, exists := resultsMap[result.VideoLink]
+		if !exists {
+			var newArr []Result
+			resultsMap[result.VideoLink] = append(newArr, result)
+		} else {
+			resultsMap[result.VideoLink] = append(resultsMap[result.VideoLink], result)
+		}
+
+		if len(resultsMap[result.VideoLink]) == 3 {
+			processResult(resultsMap[result.VideoLink], esClient)
+			delete(resultsMap, result.VideoLink)
 		}
 	}
 }
 
-func processResult(result Result, esClient *elasticsearch.Client) {
+func processResult(results []Result, esClient *elasticsearch.Client) {
+	var doc elasticsearch_utils.Doc
+	doc.Url = results[0].VideoLink
+	doc.Tags = []string{}
+	for i := 0; i < 3; i++ {
+		doc.Tags = append(doc.Tags, results[i].Marks)
+	}
 
+	elasticsearch_utils.IndexDocument(doc)
 }
