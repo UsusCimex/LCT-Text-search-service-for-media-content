@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     hostname: "zookeeper"
     networks:
-      - dc2ring
+      - mynet
     ports:
       - "2181:2181"
     healthcheck:
@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     hostname: "kafka1"
     networks:
-      - dc2ring
+      - mynet
     ports:
       - "9092:9092"
     depends_on:
@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
     hostname: "kafka2"
     networks:
-      - dc2ring
+      - mynet
     ports:
       - "9093:9093"
     depends_on:
@@ -85,17 +85,20 @@ services:
       kafka-topics --create --topic ${TEXT_TOPIC} --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
       kafka-topics --create --topic ${RESULT_TOPIC} --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};"
     networks:
-      - dc2ring
+      - mynet
 
   elasticsearch:
     container_name: elasticsearch
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.22
+    image: elasticsearch:7.17.22
     environment:
       - discovery.type=single-node
     ports:
       - "9200:9200"
     networks:
-      - dc2ring
+      - mynet
+    deploy:
+      restart_policy:
+        condition: on-failure
 
   golang_service:
     build: ../backend/main_server
@@ -105,41 +108,70 @@ services:
     environment:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - dc2ring
+      - mynet
     depends_on:
       - kafka1
       - elasticsearch
+    deploy:
+      restart_policy:
+        condition: on-failure
 
   audio_service:
     build: ../machine-learning/services/audio_processing
     container_name: audio_service
     environment:
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - dc2ring
+      - mynet
     depends_on:
       - kafka1
+    deploy:
+      restart_policy:
+        condition: on-failure
 
   video_service:
     build: ../machine-learning/services/video_processing
     container_name: video_service
     environment:
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - dc2ring
+      - mynet
     depends_on:
       - kafka1
+    deploy:
+      restart_policy:
+        condition: on-failure
 
   text_service:
     build: ../machine-learning/services/text_processing
     container_name: text_service
     environment:
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - dc2ring
+      - mynet
     depends_on:
       - kafka1
+    deploy:
+      restart_policy:
+        condition: on-failure
 
 networks:
-  dc2ring:
+  mynet:
+    driver: bridge
