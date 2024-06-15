@@ -1,0 +1,8 @@
+fastapi
+pydantic
+aiokafka
+moviepy
+numpy
+pillow
+tensorflow
+uvicorn
