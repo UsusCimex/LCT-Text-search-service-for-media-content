@@ -24,13 +24,13 @@ async def send_to_kafka(topic, data: dict):
     finally:
         await producer.stop()
 
-async def process_text(text: str):
+async def process_text(text: str, url: str):
     keywords = model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=5)
     marks = {kw[0] for kw in keywords}
     
     data = {
         "type": "text",
-        "description": text,
+        "video_link": url,
         "marks": marks
     }
     
@@ -42,9 +42,10 @@ async def consume():
         async for msg in consumer:
             data = json.loads(msg.value.decode('utf-8'))
             text = data.get('description')
+            url = data.get('video_link')
             
             if text:
-                await process_text(text)
+                await process_text(text, url)
     finally:
         await consumer.stop()
 
