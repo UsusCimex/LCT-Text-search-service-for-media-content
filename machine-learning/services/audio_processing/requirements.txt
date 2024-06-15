@@ -1,0 +1,9 @@
+fastapi
+pydantic
+aiokafka
+pydub
+whisper
+rake-nltk
+nltk
+uvicorn
+torch

@@ -32,7 +32,7 @@ async def send_to_kafka(data: dict):
 @app.post("/process_text/", response_model=TextResponse)
 async def process_text(request: TextRequest):
     keywords = model.extract_keywords(request.text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=5)
-    marks = {kw[0]: kw[1] for kw in keywords}
+    marks = {kw[0] for kw in keywords}
     
     data = {
         "type": "text",

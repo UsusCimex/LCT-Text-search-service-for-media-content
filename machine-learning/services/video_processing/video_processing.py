@@ -11,7 +11,6 @@ from tensorflow.keras.applications.efficientnet import EfficientNetB7, preproces
 from tensorflow.keras.preprocessing import image
 import tensorflow as tf
 
-# Убедитесь, что TensorFlow использует GPU
 physical_devices = tf.config.list_physical_devices('GPU')
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -65,8 +64,8 @@ def process_video_stream(video, input_shape, frame_interval=0.5):
         result_dict[label] /= len(frames)
 
     sorted_result = dict(sorted(result_dict.items(), key=lambda item: item[1], reverse=True))
-
-    return sorted_result
+    res = [sr[0] for sr in sorted_result]
+    return res
 
 async def send_to_kafka(data: dict):
     await producer.start()

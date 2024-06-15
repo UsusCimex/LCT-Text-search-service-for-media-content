@@ -65,7 +65,7 @@ async def process_audio(file: UploadFile = File(...)):
         text = recognize_speech(converted_audio_path)
 
         keywords_with_weights = extract_keywords(text)
-        keywords = {keyword: weight for keyword, weight in keywords_with_weights}
+        keywords = {kw[0] for kw in keywords_with_weights}
 
         data = {
             "type": "audio",
