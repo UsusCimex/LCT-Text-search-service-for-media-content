@@ -37,10 +37,10 @@ func SetElasticsearch() {
 	// Индексация документа
 	doc := map[string]interface{}{
 		"url": "https://example.com/video1",
-		"tags": map[string]float64{
-			"dog":     0.5,
-			"cat":     0.3,
-			"магазин": 0.1,
+		"tags": []string{
+			"dog",
+			"cat",
+			"магазин",
 		},
 	}
 	indexDocument(doc)
@@ -51,7 +51,7 @@ func createIndex() {
         "mappings": {
             "properties": {
                 "url": { "type": "keyword" },
-                "tags": { "type": "object" }
+                "tags": { "type": "text" }
             }
         }
     }`
@@ -100,29 +100,8 @@ func indexDocument(doc map[string]interface{}) {
 func Search(phrase string) {
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
-			"function_score": map[string]interface{}{
-				"query": map[string]interface{}{
-					"match": map[string]interface{}{
-						"tags": phrase,
-					},
-				},
-				"script_score": map[string]interface{}{
-					"script": map[string]interface{}{
-						"source": `
-                            double score = 0;
-                            for (entry in params['_source']['tags'].entrySet()) {
-                                if (entry.getKey().contains(params['tag'])) {
-                                    score += entry.getValue();
-                                }
-                            }
-                            return score;
-                        `,
-						"params": map[string]interface{}{
-							"tag": phrase,
-						},
-					},
-				},
-				"boost_mode": "replace",
+			"match": map[string]interface{}{
+				"tags": phrase,
 			},
 		},
 	}

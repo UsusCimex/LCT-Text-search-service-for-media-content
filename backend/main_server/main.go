@@ -43,8 +43,9 @@ func init() {
 func main() {
 	//connect to elasticsearch
 	elasticsearch_utils.Connect()
+	log.Print("Connected to elasticsearch")
 
-	//elasticsearch_utils.SetElasticsearch()
+	elasticsearch_utils.SetElasticsearch()
 
 	http.HandleFunc("/search", getVideosHandler)
 	http.HandleFunc("/video/upload", loadVideoHandler)
@@ -74,6 +75,11 @@ func main() {
 }
 
 func getVideosHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
 	phrase := "dog"
 	elasticsearch_utils.Search(phrase)
 
@@ -181,11 +187,11 @@ func consumeMessages(brokers []string, topic string, esClient *elasticsearch.Cli
 				continue
 			}
 
-			processResult(result)
+			processResult(result, esClient)
 		}
 	}
 }
 
-func processResult(result Result) {
+func processResult(result Result, esClient *elasticsearch.Client) {
 
 }
