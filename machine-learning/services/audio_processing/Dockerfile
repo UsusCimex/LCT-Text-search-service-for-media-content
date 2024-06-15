@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app
 WORKDIR /app
 
-CMD ["python3", "audio_processing.py"]
+CMD ["python", "audio_processor.py"]

@@ -87,7 +87,7 @@ async def consume():
     try:
         async for msg in consumer:
             data = json.loads(msg.value.decode('utf-8'))
-            video_url = data.get('url')
+            video_url = data.get('vide_link')
             
             if video_url:
                 video_file_path = f"temp/{os.path.basename(video_url)}"

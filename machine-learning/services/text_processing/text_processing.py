@@ -30,6 +30,7 @@ async def process_text(text: str):
     
     data = {
         "type": "text",
+        "description": text,
         "marks": marks
     }
     
@@ -40,7 +41,7 @@ async def consume():
     try:
         async for msg in consumer:
             data = json.loads(msg.value.decode('utf-8'))
-            text = data.get('text')
+            text = data.get('description')
             
             if text:
                 await process_text(text)

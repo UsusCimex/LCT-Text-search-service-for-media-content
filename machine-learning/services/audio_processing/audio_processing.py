@@ -16,12 +16,14 @@ KAFKA_BROKER = 'localhost:9092'
 AUDIO_TOPIC = 'audio_topic'
 RESULT_TOPIC = 'result_topic'
 
+# Создание экземпляров Kafka Producer и Consumer
 loop = asyncio.get_event_loop()
 producer = AIOKafkaProducer(loop=loop, bootstrap_servers=KAFKA_BROKER)
 consumer = AIOKafkaConsumer(AUDIO_TOPIC, loop=loop, bootstrap_servers=KAFKA_BROKER, group_id="audio_group")
 
-def convert_audio(audio_path, output_path="converted_audio.wav"):
-    audio = AudioSegment.from_file(audio_path)
+def convert_audio(video_path, output_path="converted_audio.wav"):
+    # Извлечение аудио из видеофайла
+    audio = AudioSegment.from_file(video_path)
     audio = audio.set_frame_rate(16000)
     audio = audio.set_channels(1)
     audio.export(output_path, format="wav")
@@ -48,7 +50,7 @@ async def send_to_kafka(topic, data: dict):
     finally:
         await producer.stop()
 
-async def download_audio(url, file_path):
+async def download_video(url, file_path):
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             if response.status == 200:
@@ -56,37 +58,38 @@ async def download_audio(url, file_path):
                     f.write(await response.read())
                 return file_path
             else:
-                raise Exception(f"Failed to download audio. Status code: {response.status}")
+                raise Exception(f"Failed to download video. Status code: {response.status}")
 
 async def consume():
     await consumer.start()
     try:
         async for msg in consumer:
             data = json.loads(msg.value.decode('utf-8'))
-            audio_url = data.get('url')
+            video_url = data.get('video_link')
             
-            if audio_url:
-                unique_audio_filename = f"temp_audio.{os.path.basename(audio_url).split('.')[-1]}"
+            if video_url:
+                unique_video_filename = f"temp_video.{os.path.basename(video_url).split('.')[-1]}"
                 converted_audio_path = "converted_audio.wav"
                 
                 try:
-                    await download_audio(audio_url, unique_audio_filename)
+                    await download_video(video_url, unique_video_filename)
                     
-                    converted_audio_path = convert_audio(unique_audio_filename)
+                    converted_audio_path = convert_audio(unique_video_filename)
                     text = recognize_speech(converted_audio_path)
                     keywords_with_weights = extract_keywords(text)
                     keywords = {kw[0] for kw in keywords_with_weights}
                     
                     result_data = {
                         "type": "audio",
+                        "video_link": video_url,
                         "marks": keywords
                     }
                     
                     await send_to_kafka(RESULT_TOPIC, result_data)
                 
                 finally:
-                    if os.path.exists(unique_audio_filename):
-                        os.remove(unique_audio_filename)
+                    if os.path.exists(unique_video_filename):
+                        os.remove(unique_video_filename)
                     if os.path.exists(converted_audio_path):
                         os.remove(converted_audio_path)
     finally:

@@ -1,8 +1,6 @@
-pydantic
+aiohttp
 aiokafka
 pydub
 whisper
 rake-nltk
 nltk
-uvicorn
-torch

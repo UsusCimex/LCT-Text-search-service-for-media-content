@@ -1,7 +1,6 @@
-pydantic
+aiohttp
 aiokafka
 moviepy
 numpy
-pillow
+Pillow
 tensorflow
-uvicorn
