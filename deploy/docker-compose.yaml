@@ -98,7 +98,7 @@ services:
       - dc2ring
 
   golang_service:
-    build: ../backend
+    build: ../backend/main_server
     container_name: golang_service
     ports:
       - "8080:8080"
