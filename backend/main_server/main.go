@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"main_server/elasticsearch_utils"
 	"net/http"
@@ -24,9 +25,13 @@ type VideoLinkMessage struct {
 }
 
 type Result struct {
-	Type      string             `json:"type"`
-	VideoLink string             `json:"video_link"`
-	Marks     map[string]float64 `json:"marks"`
+	Type      string   `json:"type"`
+	VideoLink string   `json:"video_link"`
+	Marks     []string `json:"marks"`
+}
+
+type QueryRequest struct {
+	Query string `json:"query"`
 }
 
 // init is invoked before main()
@@ -35,6 +40,7 @@ func init() {
 	if err := godotenv.Load("info.env"); err != nil {
 		log.Print("No .env file found")
 	}
+	log.Println(".env file was loaded")
 }
 
 func main() {
@@ -42,28 +48,23 @@ func main() {
 	elasticsearch_utils.Connect()
 	log.Print("Connected to elasticsearch")
 
-	elasticsearch_utils.SetElasticsearch()
+	//elasticsearch_utils.SetElasticsearch()
 
 	http.HandleFunc("/search", getVideosHandler)
 	http.HandleFunc("/video/upload", loadVideoHandler)
 
 	//start server
-	cur_addr, exists := os.LookupEnv("CUR_ADDR")
-	if !exists {
-		log.Println("current addres doesn't found")
-	}
-	log.Println("Starting server on ", cur_addr)
-	if err := http.ListenAndServe(cur_addr, nil); err != nil {
+	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalf("Could not start server: %s\n", err.Error())
 	}
 
 	//start listen kafka results
-	kafkaURL, exists := os.LookupEnv("KAFKA_URL")
+	kafkaURL, exists := os.LookupEnv("KAFKA_BOOTSTRAP_SERVERS")
 	if !exists {
 		log.Println("kafka url environment not found")
 	}
 	brokers := strings.Split(kafkaURL, ",")
-	topic_result, exists := os.LookupEnv("TOPIC_RESULT")
+	topic_result, exists := os.LookupEnv("RESULT_TOPIC")
 	if !exists {
 		log.Println("topic result not found")
 	}
@@ -77,10 +78,22 @@ func getVideosHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	phrase := "dog"
-	elasticsearch_utils.Search(phrase)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
 
-	elasticsearch_utils.PrintDocs()
+	// Распарсивание JSON
+	var req QueryRequest
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		http.Error(w, "Failed to parse JSON", http.StatusBadRequest)
+		return
+	}
+
+	elasticsearch_utils.Search(req.Query)
 }
 
 func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +114,7 @@ func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kafkaURL, exists := os.LookupEnv("KAFKA_URL")
+	kafkaURL, exists := os.LookupEnv("KAFKA_BOOTSTRAP_SERVERS")
 	if !exists {
 		log.Println("kafka url environment not found")
 	}
@@ -110,15 +123,15 @@ func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func sendToKafka(brokers []string, request LoadVideoRequest) {
-	topic_video, exists := os.LookupEnv("TOPIC_VIDEO")
+	topic_video, exists := os.LookupEnv("VIDEO_TOPIC")
 	if !exists {
 		log.Println("topic for video doesn't found")
 	}
-	topic_audio, exists := os.LookupEnv("TOPIC_AUDIO")
+	topic_audio, exists := os.LookupEnv("AUDIO_TOPIC")
 	if !exists {
 		log.Println("topic for audio doesn't found")
 	}
-	topic_descr, exists := os.LookupEnv("TOPIC_DESCRIPTION")
+	topic_descr, exists := os.LookupEnv("TEXT_TOPIC")
 	if !exists {
 		log.Println("description topic doesn't found")
 	}
@@ -205,7 +218,7 @@ func processResult(results []Result, esClient *elasticsearch.Client) {
 	doc.Url = results[0].VideoLink
 	doc.Tags = []string{}
 	for i := 0; i < 3; i++ {
-		doc.Tags = append(doc.Tags, results[i].Marks)
+		doc.Tags = append(doc.Tags, results[i].Marks...)
 	}
 
 	elasticsearch_utils.IndexDocument(doc)
