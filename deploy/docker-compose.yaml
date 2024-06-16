@@ -5,9 +5,10 @@ services:
     restart: unless-stopped
     hostname: "zookeeper"
     networks:
-      - mynet
+      - dc2ring
     ports:
       - "2181:2181"
+      - "8080:8081"
     healthcheck:
       test: ["CMD-SHELL", "echo ruok | nc 127.0.0.1 2181"]
       interval: 30s
@@ -20,7 +21,7 @@ services:
     restart: unless-stopped
     hostname: "kafka1"
     networks:
-      - mynet
+      - dc2ring
     ports:
       - "9092:9092"
     depends_on:
@@ -49,7 +50,7 @@ services:
     restart: unless-stopped
     hostname: "kafka2"
     networks:
-      - mynet
+      - dc2ring
     ports:
       - "9093:9093"
     depends_on:
@@ -80,12 +81,14 @@ services:
       - kafka2
     command: >
       bash -c "while ! echo exit | nc kafka1 9092; do sleep 1; done;
-      kafka-topics --create --topic ${AUDIO_TOPIC} --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
-      kafka-topics --create --topic ${VIDEO_TOPIC} --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
-      kafka-topics --create --topic ${TEXT_TOPIC} --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
-      kafka-topics --create --topic ${RESULT_TOPIC} --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};"
+      kafka-topics --create --topic ${AUDIO_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
+      kafka-topics --create --topic ${VIDEO_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
+      kafka-topics --create --topic ${TEXT_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
+      kafka-topics --create --topic ${RESULT_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};"
     networks:
-      - mynet
+      - dc2ring
+    environment:
+      BTS: 'kafka1:29093'
 
   elasticsearch:
     container_name: elasticsearch
@@ -95,7 +98,7 @@ services:
     ports:
       - "9200:9200"
     networks:
-      - mynet
+      - dc2ring
     deploy:
       restart_policy:
         condition: on-failure
@@ -113,7 +116,7 @@ services:
       - TEXT_TOPIC=${TEXT_TOPIC}
       - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - mynet
+      - dc2ring
     depends_on:
       - kafka1
       - elasticsearch
@@ -131,7 +134,7 @@ services:
       - TEXT_TOPIC=${TEXT_TOPIC}
       - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - mynet
+      - dc2ring
     depends_on:
       - kafka1
     deploy:
@@ -148,7 +151,7 @@ services:
       - TEXT_TOPIC=${TEXT_TOPIC}
       - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - mynet
+      - dc2ring
     depends_on:
       - kafka1
     deploy:
@@ -165,7 +168,7 @@ services:
       - TEXT_TOPIC=${TEXT_TOPIC}
       - RESULT_TOPIC=${RESULT_TOPIC}
     networks:
-      - mynet
+      - dc2ring
     depends_on:
       - kafka1
     deploy:
@@ -173,5 +176,5 @@ services:
         condition: on-failure
 
 networks:
-  mynet:
+  dc2ring:
     driver: bridge
