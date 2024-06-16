@@ -1,0 +1,6 @@
+aiokafka
+aiohttp
+numpy
+pillow
+tensorflow
+moviepy

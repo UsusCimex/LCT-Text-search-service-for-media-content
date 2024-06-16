@@ -1,0 +1,6 @@
+aiokafka
+aiohttp
+pydub
+whisper
+rake_nltk
+nltk

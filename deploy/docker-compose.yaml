@@ -1,0 +1,180 @@
+services:
+  zookeeper:
+    container_name: zookeeper
+    image: zookeeper:3.6.3
+    restart: unless-stopped
+    hostname: "zookeeper"
+    networks:
+      - dc2ring
+    ports:
+      - "2181:2181"
+      - "8080:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc 127.0.0.1 2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka1:
+    container_name: kafka1
+    image: confluentinc/cp-kafka:7.2.0
+    restart: unless-stopped
+    hostname: "kafka1"
+    networks:
+      - dc2ring
+    ports:
+      - "9092:9092"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://localhost:9092
+      KAFKA_MESSAGE_MAX_BYTES: 2000000000
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_SEGMENT_BYTES: 104857600
+      KAFKA_DEFAULT_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_NUM_PARTITIONS: ${PARTITIONS}
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server 127.0.0.1:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+
+  kafka2:
+    container_name: kafka2
+    image: confluentinc/cp-kafka:7.2.0
+    restart: unless-stopped
+    hostname: "kafka2"
+    networks:
+      - dc2ring
+    ports:
+      - "9093:9093"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:29093,EXTERNAL://localhost:9093
+      KAFKA_MESSAGE_MAX_BYTES: 2000000000
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_SEGMENT_BYTES: 104857600
+      KAFKA_DEFAULT_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_NUM_PARTITIONS: ${PARTITIONS}
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server 127.0.0.1:9093 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+
+  create-topics:
+    container_name: create-topics
+    image: confluentinc/cp-kafka:7.2.0
+    depends_on:
+      - kafka1
+      - kafka2
+    command: >
+      bash -c "while ! echo exit | nc kafka1 9092; do sleep 1; done;
+      kafka-topics --create --topic ${AUDIO_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
+      kafka-topics --create --topic ${VIDEO_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
+      kafka-topics --create --topic ${TEXT_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};
+      kafka-topics --create --topic ${RESULT_TOPIC} --bootstrap-server $${BTS} --replication-factor ${REPLICATION_FACTOR} --partitions ${PARTITIONS};"
+    networks:
+      - dc2ring
+    environment:
+      BTS: 'kafka1:29093'
+
+  elasticsearch:
+    container_name: elasticsearch
+    image: elasticsearch:7.17.22
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200"
+    networks:
+      - dc2ring
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  golang_service:
+    build: ../backend/main_server
+    container_name: golang_service
+    ports:
+      - "8080:8080"
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
+    networks:
+      - dc2ring
+    depends_on:
+      - kafka1
+      - elasticsearch
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  audio_service:
+    build: ../machine-learning/services/audio_service
+    container_name: audio_service
+    environment:
+      - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
+    networks:
+      - dc2ring
+    depends_on:
+      - kafka1
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  video_service:
+    build: ../machine-learning/services/video_service
+    container_name: video_service
+    environment:
+      - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
+    networks:
+      - dc2ring
+    depends_on:
+      - kafka1
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  text_service:
+    build: ../machine-learning/services/text_service
+    container_name: text_service
+    environment:
+      - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
+      - AUDIO_TOPIC=${AUDIO_TOPIC}
+      - VIDEO_TOPIC=${VIDEO_TOPIC}
+      - TEXT_TOPIC=${TEXT_TOPIC}
+      - RESULT_TOPIC=${RESULT_TOPIC}
+    networks:
+      - dc2ring
+    depends_on:
+      - kafka1
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+networks:
+  dc2ring:
+    driver: bridge
