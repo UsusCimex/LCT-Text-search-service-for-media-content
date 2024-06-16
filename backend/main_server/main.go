@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/joho/godotenv"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -27,14 +26,6 @@ type Result struct {
 	Type      string   `json:"type"`
 	VideoLink string   `json:"video_link"`
 	Marks     []string `json:"marks"`
-}
-
-// init is invoked before main()
-func init() {
-	// loads values from .env into the system
-	if err := godotenv.Load("info.env"); err != nil {
-		log.Print("No .env file found")
-	}
 }
 
 func main() {
