@@ -7,9 +7,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     && apt-get clean
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
 
 CMD ["python", "audio_processor.py"]

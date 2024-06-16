@@ -7,9 +7,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     && apt-get clean
 
-COPY requirements.txt .
+COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
 
 CMD ["python3", "video_processing.py"]
