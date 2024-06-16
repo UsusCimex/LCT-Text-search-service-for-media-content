@@ -3,8 +3,6 @@ import os
 import json
 import asyncio
 from aiokafka import AIOKafkaConsumer
-sys.path.append('..')
-from kafka_utils import send_to_kafka, download_file
 from pydub import AudioSegment
 import whisper
 from rake_nltk import Rake
@@ -55,6 +53,24 @@ async def process_audio_message(data, send_to_kafka, result_topic):
         finally:
             os.remove(unique_video_filename)
             os.remove(converted_audio_path)
+
+async def send_to_kafka(topic, data):
+    producer = AIOKafkaProducer(bootstrap_servers='localhost:29092')
+    await producer.start()
+    try:
+        value = json.dumps(data).encode('utf-8')
+        await producer.send_and_wait(topic, value)
+    finally:
+        await producer.stop()
+
+async def download_file(url, dest):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(dest, 'wb') as f:
+                    f.write(await response.read())
+            else:
+                raise Exception(f"Failed to download file from {url}")
 
 async def consume():
     consumer = AIOKafkaConsumer('audio_topic', bootstrap_servers='localhost:29092', group_id="audio_group")

@@ -6,8 +6,6 @@ import aiohttp
 import numpy as np
 from PIL import Image
 from aiokafka import AIOKafkaConsumer
-sys.path.append('..')
-from kafka_utils import send_to_kafka, download_file
 from tensorflow.keras.applications.efficientnet import EfficientNetB7, preprocess_input, decode_predictions
 from tensorflow.keras.preprocessing import image
 import tensorflow as tf
@@ -87,6 +85,24 @@ async def process_video_message(data, send_to_kafka, result_topic):
         await send_to_kafka(result_topic, result_data)
         
         os.remove(video_file_path)
+
+async def send_to_kafka(topic, data):
+    producer = AIOKafkaProducer(bootstrap_servers='localhost:29092')
+    await producer.start()
+    try:
+        value = json.dumps(data).encode('utf-8')
+        await producer.send_and_wait(topic, value)
+    finally:
+        await producer.stop()
+
+async def download_file(url, dest):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(dest, 'wb') as f:
+                    f.write(await response.read())
+            else:
+                raise Exception(f"Failed to download file from {url}")
 
 async def consume():
     consumer = AIOKafkaConsumer(VIDEO_TOPIC, bootstrap_servers=KAFKA_BROKER, group_id="video_group")

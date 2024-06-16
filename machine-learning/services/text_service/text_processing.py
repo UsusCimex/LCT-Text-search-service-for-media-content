@@ -2,8 +2,6 @@ import sys
 import asyncio
 import json
 from aiokafka import AIOKafkaConsumer
-sys.path.append('..')
-from kafka_utils import send_to_kafka
 from keybert import KeyBERT
 
 # Инициализация модели KeyBERT
@@ -24,6 +22,15 @@ async def process_text_message(data, send_to_kafka, result_topic):
             "marks": keywords
         }
         await send_to_kafka(result_topic, result_data)
+
+async def send_to_kafka(topic, data):
+    producer = AIOKafkaProducer(bootstrap_servers='localhost:29092')
+    await producer.start()
+    try:
+        value = json.dumps(data).encode('utf-8')
+        await producer.send_and_wait(topic, value)
+    finally:
+        await producer.stop()
 
 async def consume():
     consumer = AIOKafkaConsumer('text_topic', bootstrap_servers='kafka:29092', group_id="text_group")

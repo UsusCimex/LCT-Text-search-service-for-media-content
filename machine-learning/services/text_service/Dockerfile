@@ -5,7 +5,6 @@ WORKDIR .
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY text_processor.py .
-COPY ../kafka_utils.py .
+COPY text_processing.py .
 
-CMD ["python", "text_processor.py"]
+CMD ["python", "text_processing.py"]

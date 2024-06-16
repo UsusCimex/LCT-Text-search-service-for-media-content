@@ -4,3 +4,4 @@ pydub
 whisper
 rake_nltk
 nltk
+torch
