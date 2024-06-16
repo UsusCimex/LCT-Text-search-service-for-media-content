@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"main_server/elasticsearch_utils"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/joho/godotenv"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -28,12 +30,25 @@ type Result struct {
 	Marks     []string `json:"marks"`
 }
 
+type QueryRequest struct {
+	Query string `json:"query"`
+}
+
+// init is invoked before main()
+func init() {
+	// loads values from .env into the system
+	if err := godotenv.Load("info.env"); err != nil {
+		log.Print("No .env file found")
+	}
+	log.Println(".env file was loaded")
+}
+
 func main() {
 	//connect to elasticsearch
 	elasticsearch_utils.Connect()
 	log.Print("Connected to elasticsearch")
 
-	elasticsearch_utils.SetElasticsearch()
+	//elasticsearch_utils.SetElasticsearch()
 
 	http.HandleFunc("/search", getVideosHandler)
 	http.HandleFunc("/video/upload", loadVideoHandler)
@@ -44,12 +59,12 @@ func main() {
 	}
 
 	//start listen kafka results
-	kafkaURL, exists := os.LookupEnv("KAFKA_URL")
+	kafkaURL, exists := os.LookupEnv("KAFKA_BOOTSTRAP_SERVERS")
 	if !exists {
 		log.Println("kafka url environment not found")
 	}
 	brokers := strings.Split(kafkaURL, ",")
-	topic_result, exists := os.LookupEnv("TOPIC_RESULT")
+	topic_result, exists := os.LookupEnv("RESULT_TOPIC")
 	if !exists {
 		log.Println("topic result not found")
 	}
@@ -63,10 +78,22 @@ func getVideosHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	phrase := "dog"
-	elasticsearch_utils.Search(phrase)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
 
-	elasticsearch_utils.PrintDocs()
+	// Распарсивание JSON
+	var req QueryRequest
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		http.Error(w, "Failed to parse JSON", http.StatusBadRequest)
+		return
+	}
+
+	elasticsearch_utils.Search(req.Query)
 }
 
 func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +114,7 @@ func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kafkaURL, exists := os.LookupEnv("KAFKA_URL")
+	kafkaURL, exists := os.LookupEnv("KAFKA_BOOTSTRAP_SERVERS")
 	if !exists {
 		log.Println("kafka url environment not found")
 	}
@@ -96,15 +123,15 @@ func loadVideoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func sendToKafka(brokers []string, request LoadVideoRequest) {
-	topic_video, exists := os.LookupEnv("TOPIC_VIDEO")
+	topic_video, exists := os.LookupEnv("VIDEO_TOPIC")
 	if !exists {
 		log.Println("topic for video doesn't found")
 	}
-	topic_audio, exists := os.LookupEnv("TOPIC_AUDIO")
+	topic_audio, exists := os.LookupEnv("AUDIO_TOPIC")
 	if !exists {
 		log.Println("topic for audio doesn't found")
 	}
-	topic_descr, exists := os.LookupEnv("TOPIC_DESCRIPTION")
+	topic_descr, exists := os.LookupEnv("TEXT_TOPIC")
 	if !exists {
 		log.Println("description topic doesn't found")
 	}
