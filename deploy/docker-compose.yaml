@@ -125,7 +125,7 @@ services:
         condition: on-failure
 
   audio_service:
-    build: ../machine-learning/services/audio_processing
+    build: ../machine-learning/services/audio_service
     container_name: audio_service
     environment:
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
@@ -142,7 +142,7 @@ services:
         condition: on-failure
 
   video_service:
-    build: ../machine-learning/services/video_processing
+    build: ../machine-learning/services/video_service
     container_name: video_service
     environment:
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}
@@ -159,7 +159,7 @@ services:
         condition: on-failure
 
   text_service:
-    build: ../machine-learning/services/text_processing
+    build: ../machine-learning/services/text_service
     container_name: text_service
     environment:
       - KAFKA_URL=${KAFKA_BOOTSTRAP_SERVERS}

@@ -1,6 +1,6 @@
-aiohttp
 aiokafka
+aiohttp
 pydub
 whisper
-rake-nltk
+rake_nltk
 nltk

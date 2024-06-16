@@ -1,6 +1,6 @@
-aiohttp
 aiokafka
-moviepy
+aiohttp
 numpy
-Pillow
+pillow
 tensorflow
+moviepy
